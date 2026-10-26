@@ -51,6 +51,40 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(generate.await_args.kwargs["image_bytes"], _one_pixel_png())
         self.assertEqual(generate.await_args.kwargs["mime_type"], "image/png")
 
+    def test_health_and_preflight_return_cors_headers_for_configured_frontends(self):
+        allowed_origins = [
+            "https://multimodal-construction-intelligence-platform-e9ynp62dx.vercel.app",
+            "https://multimodal-construction-intelligenc-two.vercel.app",
+            "http://localhost:5173",
+        ]
+        for origin in allowed_origins:
+            with self.subTest(origin=origin):
+                health = self.client.get("/health", headers={"Origin": origin})
+                self.assertEqual(health.status_code, 200)
+                self.assertEqual(health.headers.get("access-control-allow-origin"), origin)
+                self.assertEqual(health.headers.get("access-control-allow-credentials"), "true")
+
+                preflight = self.client.options(
+                    "/api/project-plan",
+                    headers={
+                        "Origin": origin,
+                        "Access-Control-Request-Method": "POST",
+                        "Access-Control-Request-Headers": "content-type",
+                    },
+                )
+                self.assertEqual(preflight.status_code, 200)
+                self.assertEqual(preflight.headers.get("access-control-allow-origin"), origin)
+                self.assertIn("POST", preflight.headers.get("access-control-allow-methods", ""))
+                self.assertEqual(preflight.headers.get("access-control-allow-credentials"), "true")
+
+    def test_cors_rejects_unlisted_origins(self):
+        response = self.client.get(
+            "/health",
+            headers={"Origin": "https://unlisted.example"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("access-control-allow-origin", response.headers)
+
     def test_safety_endpoint_returns_sanitized_ai_error(self):
         with patch(
             "main.generate_structured",

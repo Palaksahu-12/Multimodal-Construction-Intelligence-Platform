@@ -40,7 +40,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
-cors_origins = [
+required_cors_origins = [
+    "https://multimodal-construction-intelligence-platform-e9ynp62dx.vercel.app",
+    "https://multimodal-construction-intelligenc-two.vercel.app",
+]
+configured_cors_origins = [
     origin.strip()
     for origin in os.getenv(
         "CORS_ORIGINS",
@@ -48,6 +52,7 @@ cors_origins = [
     ).split(",")
     if origin.strip()
 ]
+cors_origins = list(dict.fromkeys([*configured_cors_origins, *required_cors_origins]))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,

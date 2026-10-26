@@ -47,7 +47,7 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Put the key in `backend/.env` as `GEMINI_API_KEY=...`. Do not commit or share that file. `CORS_ORIGINS` is optional and defaults to the two local Vite origins. Set it to a comma-separated allowlist when the frontend is hosted elsewhere.
+Put the key in `backend/.env` as `GEMINI_API_KEY=...`. Do not commit or share that file. `CORS_ORIGINS` is optional and defaults to the two local Vite origins; the two configured Vercel frontend origins are always included. Additional trusted origins can be supplied as a comma-separated allowlist. CORS credentials remain enabled, with no wildcard origin.
 
 Start FastAPI:
 
@@ -106,7 +106,7 @@ npm run build
 
 - Keep `GEMINI_API_KEY` in the deployment platform's backend secret/environment-variable store.
 - Run Uvicorn behind a TLS-terminating reverse proxy or the hosting platform's HTTPS ingress; bind to the platform-provided host/port as required.
-- Configure `CORS_ORIGINS` with the exact deployed frontend origins. Do not use a wildcard with credentials.
+- The two project Vercel origins are explicitly allowed by the backend; add any other trusted frontend origins to `CORS_ORIGINS`. Do not use a wildcard with credentials.
 - Set the frontend's `VITE_API_BASE_URL` at build time to the deployed HTTPS API origin.
 - Deploy the frontend's Vite production build (`npm run build`, output in `frontend/dist`) to a static host and deploy the FastAPI backend separately.
 - Planning and valuation outputs contain broad illustrative assumptions; integrate verified local pricing data and professional review before operational use. Live weather and architectural image-generation integrations are not configured.
