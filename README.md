@@ -5,7 +5,7 @@ React/Vite frontend and FastAPI backend for construction image review, conceptua
 ## Features and status
 
 - Site safety image review and crack observation use Google Gemini multimodal analysis.
-- Construction planning returns conceptual phases, durations, broad material quantities, and indicative costs. Its defaults are illustrative planning factors, not current market rates or a bill of quantities.
+- Construction planning returns sequential conceptual phases with dependencies, internally reconciled durations and costs, broad material quantities, assumptions, and key risks. Its defaults are illustrative planning factors, not current market rates or a bill of quantities.
 - Property valuation is calculated only from a user-supplied local reference rate. Without one, the API returns `NEEDS_LOCAL_REFERENCE_RATE`, not a fabricated value.
 - The construction assistant and daily site assistant use Gemini. Daily summaries are grounded in the facts the user submits.
 - The weather advisory does not retrieve live weather. It reports `INSUFFICIENT INFORMATION` until the user supplies conditions, and labels those conditions as unverified.
@@ -76,13 +76,13 @@ Interactive Swagger documentation is available at `http://127.0.0.1:8000/docs`.
 | `GET /health` | none | Backend liveness |
 | `POST /api/site-safety/analyze` | multipart `image`, optional `context` | Validates JPEG/PNG/WEBP and up to 10 MB; returns `analysis` with summary, risk, hazards, PPE concerns, and limitations |
 | `POST /api/crack-analysis/analyze` | multipart `image`, optional `context` | Returns visible crack characteristics, indicative severity, possible causes, next steps, and limitations |
-| `POST /api/project-plan` | JSON `project_type`, `built_up_area_sqm`, `floors`, optional `budget_inr`, `target_timeline_days`, `location` | Returns indicative cost breakdown, durations, and broad material allowances |
-| `POST /api/property-valuation` | JSON property details, optional user-supplied `reference_price_per_sqm_inr`, rent and investment inputs | Returns a clearly indicative INR calculation or requests a local reference rate |
+| `POST /api/project-plan` | JSON `project_type` (Residential, Commercial, Renovation), `built_up_area_sqm`, `floors`, optional `budget_inr`, `target_timeline_days`, `location` | Returns indicative cost breakdown, sequential dependencies, summed durations, risks, and broad material allowances |
+| `POST /api/property-valuation` | JSON property details including `area_sqm` (legacy `built_up_area_sqm` is accepted), optional user-supplied `reference_price_per_sqm_inr`, rent and investment inputs | Returns a clearly indicative INR calculation or requests a local reference rate |
 | `POST /api/chat` | JSON `message`, optional recent `history` | Returns a concise answer and caveats |
 | `POST /api/daily-site-assistant` | JSON `site_update`, optional activities, workforce, resources, and constraints | Returns summary, reported progress, pending tasks, risks, next actions, and limitations |
 | `POST /api/weather-advisory` | JSON `activity` and optional user-provided weather observations | Returns GO/NO-GO/INSUFFICIENT INFORMATION; does not fetch or claim live conditions |
 
-JSON validation failures use HTTP 422. Image type/content failures use HTTP 400; image payloads above 10 MB use HTTP 413. AI failures are returned as sanitized errors, distinguishing configuration/access, quota/rate limits, timeouts, and upstream outages. Gemini is configured server-side with a 60-second request timeout and bounded retry/backoff for transient connection and service failures.
+JSON validation failures use HTTP 422. Image type/content failures use HTTP 400; image payloads above 10 MB use HTTP 413. AI failures are returned as sanitized errors, distinguishing configuration/access, quota/rate limits, timeouts, and upstream outages. Gemini is configured server-side with a 60-second request timeout and bounded exponential retry/backoff with jitter for transient connection and service failures. AI responses with missing required fields or inconsistent project totals are rejected instead of being filled with success-shaped defaults.
 
 ## Tests and build
 

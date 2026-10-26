@@ -272,6 +272,8 @@ async def weather_advisory(request: WeatherRequest):
         return WeatherResponse(
             recommendation="INSUFFICIENT INFORMATION",
             explanation="No weather observations were supplied; current conditions and forecasts are not connected.",
+            risks=[],
+            precautions=[],
             limitations=[
                 "Provide observed or forecast conditions from a trusted source before planning weather-sensitive work.",
                 "This application does not have a configured live weather-data provider.",

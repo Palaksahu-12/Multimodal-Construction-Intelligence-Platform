@@ -169,6 +169,7 @@ function App() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-icon">C</div>
@@ -178,16 +179,19 @@ function App() {
           </div>
         </div>
         <p className="nav-label">WORKSPACE</p>
-        {navigation.map(([item, icon]) => (
-          <button
-            key={item}
-            className={`nav-item ${activeTab === item ? "active" : ""}`}
-            onClick={() => setActiveTab(item)}
-          >
-            <span className="nav-icon">{icon}</span>
-            {item}
-          </button>
-        ))}
+        <nav aria-label="Main navigation">
+          {navigation.map(([item, icon]) => (
+            <button
+              key={item}
+              className={`nav-item ${activeTab === item ? "active" : ""}`}
+              aria-current={activeTab === item ? "page" : undefined}
+              onClick={() => setActiveTab(item)}
+            >
+              <span className="nav-icon" aria-hidden="true">{icon}</span>
+              {item}
+            </button>
+          ))}
+        </nav>
         <div className="sidebar-bottom">
           <div className="status-dot" />
           <span>Construction Intelligence</span>
@@ -195,7 +199,7 @@ function App() {
         </div>
       </aside>
 
-      <main className="main-content">
+      <main className="main-content" id="main-content">
         <header className="topbar">
           <div>
             <p className="breadcrumb">Workspace / {activeTab}</p>

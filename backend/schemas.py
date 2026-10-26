@@ -1,41 +1,53 @@
+import math
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class InputModel(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, allow_inf_nan=False)
 
 
-class SafetyHazard(BaseModel):
-    hazard: str = Field(default="")
-    severity: Literal["Low", "Medium", "High", "Uncertain"] = "Uncertain"
-    evidence: str = Field(default="")
-    corrective_action: str = Field(default="")
+class OutputModel(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, allow_inf_nan=False)
 
 
-class SafetyAnalysis(BaseModel):
-    summary: str = Field(default="")
-    overall_risk: Literal["Low", "Medium", "High", "Uncertain"] = "Uncertain"
-    hazards: list[SafetyHazard] = Field(default_factory=list)
-    ppe_concerns: list[str] = Field(default_factory=list)
-    limitations: list[str] = Field(default_factory=list)
+class SafetyHazard(OutputModel):
+    hazard: str = Field(min_length=1)
+    severity: Literal["Low", "Medium", "High", "Uncertain"]
+    evidence: str = Field(min_length=1)
+    corrective_action: str = Field(min_length=1)
 
 
-class CrackAnalysis(BaseModel):
-    summary: str = Field(default="")
-    crack_visible: bool = False
-    characteristics: list[str] = Field(default_factory=list)
-    category: str = Field(default="Undetermined")
-    indicative_severity: Literal["Minor", "Moderate", "Severe", "Undetermined"] = "Undetermined"
-    possible_causes: list[str] = Field(default_factory=list)
-    concerns: list[str] = Field(default_factory=list)
-    recommended_next_steps: list[str] = Field(default_factory=list)
-    limitations: list[str] = Field(default_factory=list)
+class SafetyAnalysis(OutputModel):
+    summary: str = Field(min_length=1)
+    overall_risk: Literal["Low", "Medium", "High", "Uncertain"]
+    hazards: list[SafetyHazard]
+    ppe_concerns: list[str]
+    limitations: list[str] = Field(min_length=1)
+
+
+class CrackAnalysis(OutputModel):
+    summary: str = Field(min_length=1)
+    crack_visible: bool
+    characteristics: list[str]
+    category: str = Field(min_length=1)
+    indicative_severity: Literal["Minor", "Moderate", "Severe", "Undetermined"]
+    possible_causes: list[str]
+    concerns: list[str]
+    recommended_next_steps: list[str] = Field(min_length=1)
+    limitations: list[str] = Field(min_length=1)
 
 
 class ProjectPlanRequest(InputModel):
-    project_type: str = Field(min_length=2, max_length=80)
+    project_type: Literal["Residential", "Commercial", "Renovation"]
     built_up_area_sqm: float = Field(gt=0, le=100_000)
     location: str | None = Field(default=None, max_length=120)
     floors: int = Field(default=1, ge=1, le=100)
@@ -43,42 +55,60 @@ class ProjectPlanRequest(InputModel):
     target_timeline_days: int | None = Field(default=None, ge=5, le=5_000)
 
 
-class CostLineItem(BaseModel):
-    phase: str
-    estimated_cost_inr: float
-    duration_days: int
+class CostLineItem(OutputModel):
+    phase: str = Field(min_length=1)
+    estimated_cost_inr: float = Field(ge=0)
+    duration_days: int = Field(ge=1)
+    depends_on: list[str]
 
 
-class MaterialEstimate(BaseModel):
+class MaterialEstimate(OutputModel):
     material: str
     estimated_quantity: float
     unit: str
     note: str
 
 
-class ProjectPlanResponse(BaseModel):
+class ProjectPlanResponse(OutputModel):
     estimate_status: Literal["INDICATIVE"]
-    estimated_cost_inr: float
+    estimated_cost_inr: float = Field(gt=0)
+    estimated_duration_days: int = Field(ge=1)
     cost_breakdown: list[CostLineItem]
     materials: list[MaterialEstimate]
-    assumptions: list[str]
-    exclusions: list[str]
+    assumptions: list[str] = Field(min_length=1)
+    risks: list[str] = Field(min_length=1)
+    exclusions: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def totals_match_breakdown(self):
+        if not self.cost_breakdown:
+            raise ValueError("At least one project phase is required.")
+        breakdown_cost = sum(item.estimated_cost_inr for item in self.cost_breakdown)
+        if not math.isclose(breakdown_cost, self.estimated_cost_inr, abs_tol=0.01):
+            raise ValueError("Project phase costs must sum to the estimated total.")
+        if sum(item.duration_days for item in self.cost_breakdown) != self.estimated_duration_days:
+            raise ValueError("Project phase durations must sum to the estimated total duration.")
+        return self
 
 
 class PropertyValuationRequest(InputModel):
     city: str = Field(min_length=2, max_length=100)
     locality: str | None = Field(default=None, max_length=120)
     property_type: Literal["Apartment", "Independent house", "Plot", "Commercial"]
-    built_up_area_sqm: float = Field(gt=0, le=100_000)
+    area_sqm: float = Field(
+        gt=0,
+        le=100_000,
+        validation_alias=AliasChoices("area_sqm", "built_up_area_sqm"),
+    )
     building_age_years: int = Field(default=0, ge=0, le=150)
-    condition: Literal["Poor", "Average", "Good"]
+    condition: Literal["Poor", "Average", "Good"] = "Average"
     amenities: list[str] = Field(default_factory=list, max_length=20)
     reference_price_per_sqm_inr: float | None = Field(default=None, gt=0, le=10_000_000)
     reference_monthly_rent_inr: float | None = Field(default=None, gt=0, le=100_000_000)
     investment_cost_inr: float | None = Field(default=None, gt=0, le=10_000_000_000)
 
 
-class PropertyValuationResponse(BaseModel):
+class PropertyValuationResponse(OutputModel):
     estimate_status: Literal["INDICATIVE", "NEEDS_LOCAL_REFERENCE_RATE"]
     currency: Literal["INR"] = "INR"
     estimated_value_range_inr: list[float] | None = None
@@ -108,9 +138,9 @@ class ChatRequest(InputModel):
         return value
 
 
-class ChatResponse(BaseModel):
-    reply: str
-    caveats: list[str] = Field(default_factory=list)
+class ChatResponse(OutputModel):
+    reply: str = Field(min_length=1)
+    caveats: list[str]
 
 
 class DailySiteRequest(InputModel):
@@ -119,6 +149,13 @@ class DailySiteRequest(InputModel):
     workforce_available: int | None = Field(default=None, ge=0, le=10_000)
     materials_and_equipment: list[str] = Field(default_factory=list, max_length=40)
     constraints: list[str] = Field(default_factory=list, max_length=30)
+
+    @field_validator("planned_activities", "materials_and_equipment", "constraints")
+    @classmethod
+    def validate_list_items(cls, values: list[str]) -> list[str]:
+        if any(not value or len(value) > 300 for value in values):
+            raise ValueError("List items must contain 1 to 300 characters.")
+        return values
 
     @field_validator("site_update")
     @classmethod
@@ -129,14 +166,14 @@ class DailySiteRequest(InputModel):
         return value
 
 
-class DailySiteResponse(BaseModel):
-    summary: str
-    reported_progress: list[str] = Field(default_factory=list)
-    pending_tasks: list[str] = Field(default_factory=list)
-    risks: list[str] = Field(default_factory=list)
-    suggested_next_actions: list[str] = Field(default_factory=list)
-    coordination_points: list[str] = Field(default_factory=list)
-    limitations: list[str] = Field(default_factory=list)
+class DailySiteResponse(OutputModel):
+    summary: str = Field(min_length=1)
+    reported_progress: list[str]
+    pending_tasks: list[str]
+    risks: list[str]
+    suggested_next_actions: list[str]
+    coordination_points: list[str]
+    limitations: list[str] = Field(min_length=1)
 
 
 class WeatherRequest(InputModel):
@@ -156,11 +193,11 @@ class WeatherRequest(InputModel):
         return value
 
 
-class WeatherResponse(BaseModel):
+class WeatherResponse(OutputModel):
     recommendation: Literal["GO", "NO-GO", "INSUFFICIENT INFORMATION"]
-    explanation: str
-    risks: list[str] = Field(default_factory=list)
-    precautions: list[str] = Field(default_factory=list)
+    explanation: str = Field(min_length=1)
+    risks: list[str]
+    precautions: list[str]
     conditions_used: list[str] = Field(default_factory=list)
     source_label: str = "User-provided conditions; current weather was not independently verified."
-    limitations: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(min_length=1)

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { API_BASE_URL } from "./api";
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -19,12 +19,28 @@ function useApiRequest() {
         headers: isFormData ? undefined : { "Content-Type": "application/json" },
         body: isFormData ? body : JSON.stringify(body),
       });
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(
+          response.ok
+            ? "The backend returned an unreadable response."
+            : `The backend request failed (HTTP ${response.status}).`
+        );
+      }
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("The backend returned an invalid response.");
+      }
       if (!response.ok) {
         const detail = Array.isArray(data.detail)
           ? data.detail.map((item) => item.msg).join("; ")
           : data.detail;
-        throw new Error(detail || "The request could not be completed.");
+        throw new Error(
+          typeof detail === "string" && detail
+            ? detail
+            : `The backend request failed (HTTP ${response.status}).`
+        );
       }
       setResult(data);
       return data;
@@ -159,13 +175,18 @@ export function ImageAnalysisPanel({ kind }) {
   const [validationError, setValidationError] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
 
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
   function selectImage(event) {
     const file = event.target.files?.[0] || null;
     setImage(null);
     request.setError("");
     request.setResult(null);
     setValidationError("");
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl("");
     if (!file) return;
     if (!IMAGE_TYPES.includes(file.type)) {
@@ -209,15 +230,20 @@ export function ImageAnalysisPanel({ kind }) {
     >
       <form className="workflow-form" onSubmit={submit}>
         <label className="upload-dropzone">
-          <span className="upload-symbol">↑</span>
+          <span className="upload-symbol" aria-hidden="true">↑</span>
           <strong>{isCrack ? "Choose a building or concrete image" : "Choose a construction-site image"}</strong>
           <span>JPG, PNG or WEBP · Maximum 10 MB</span>
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp"
+            aria-label={isCrack ? "Select a crack analysis image" : "Select a site safety image"}
+            disabled={request.isLoading}
             onChange={selectImage}
           />
         </label>
+        {!image && !validationError && (
+          <p className="form-note">No image selected. Choose a supported image to begin; no analysis is generated until you submit it.</p>
+        )}
         {previewUrl && (
           <div className="image-preview">
             <img src={previewUrl} alt="Selected analysis preview" />
@@ -292,10 +318,10 @@ export function ProjectPlanPanel() {
           <input required type="number" min="1" max="100" name="floors" value={form.floors} onChange={update} />
         </Field>
         <Field label="Total budget in INR (optional)">
-          <input type="number" min="1" name="budget_inr" value={form.budget_inr} onChange={update} />
+          <input type="number" min="1" max="10000000000" name="budget_inr" value={form.budget_inr} onChange={update} />
         </Field>
         <Field label="Target timeline in days (optional)">
-          <input type="number" min="1" max="5000" name="target_timeline_days" value={form.target_timeline_days} onChange={update} />
+          <input type="number" min="5" max="5000" name="target_timeline_days" value={form.target_timeline_days} onChange={update} />
         </Field>
         <p className="form-note">Without a budget, the plan uses an illustrative broad-area factor, not a current local quotation. Quantities are not a bill of materials.</p>
         <WorkflowStatus busy={request.isLoading} error={request.error} />
@@ -312,7 +338,7 @@ export function PropertyValuationPanel() {
     city: "",
     locality: "",
     property_type: "Apartment",
-    built_up_area_sqm: "",
+    area_sqm: "",
     building_age_years: "0",
     condition: "Average",
     amenities: "",
@@ -327,7 +353,7 @@ export function PropertyValuationPanel() {
     event.preventDefault();
     await request.send("/api/property-valuation", {
       ...form,
-      built_up_area_sqm: Number(form.built_up_area_sqm),
+      area_sqm: Number(form.area_sqm),
       building_age_years: Number(form.building_age_years),
       amenities: form.amenities.split(",").map((item) => item.trim()).filter(Boolean),
       reference_price_per_sqm_inr: form.reference_price_per_sqm_inr
@@ -347,10 +373,14 @@ export function PropertyValuationPanel() {
         <Field label="City"><input required minLength="2" maxLength="100" name="city" value={form.city} onChange={update} /></Field>
         <Field label="Locality (optional)"><input maxLength="120" name="locality" value={form.locality} onChange={update} /></Field>
         <Field label="Property type"><select name="property_type" value={form.property_type} onChange={update}><option>Apartment</option><option>Independent house</option><option>Plot</option><option>Commercial</option></select></Field>
-        <Field label="Built-up area (m²)"><input required type="number" min="0.1" max="100000" step="0.1" name="built_up_area_sqm" value={form.built_up_area_sqm} onChange={update} /></Field>
-        <Field label="Building age (years)"><input required type="number" min="0" max="150" name="building_age_years" value={form.building_age_years} onChange={update} /></Field>
-        <Field label="Condition"><select name="condition" value={form.condition} onChange={update}><option>Poor</option><option>Average</option><option>Good</option></select></Field>
-        <Field label="Amenities (comma-separated)"><input name="amenities" value={form.amenities} onChange={update} placeholder="Lift, parking" /></Field>
+        <Field label={form.property_type === "Plot" ? "Plot area (m²)" : "Built-up area (m²)"}><input required type="number" min="0.1" max="100000" step="0.1" name="area_sqm" value={form.area_sqm} onChange={update} /></Field>
+        {form.property_type !== "Plot" && (
+          <>
+            <Field label="Building age (years)"><input required type="number" min="0" max="150" name="building_age_years" value={form.building_age_years} onChange={update} /></Field>
+            <Field label="Condition"><select name="condition" value={form.condition} onChange={update}><option>Poor</option><option>Average</option><option>Good</option></select></Field>
+            <Field label="Amenities (comma-separated)"><input name="amenities" value={form.amenities} onChange={update} placeholder="Lift, parking" /></Field>
+          </>
+        )}
         <Field label="Local reference price (INR/m²)"><input type="number" min="1" name="reference_price_per_sqm_inr" value={form.reference_price_per_sqm_inr} onChange={update} placeholder="Required for numeric estimate" /></Field>
         <Field label="Reference monthly rent in INR (optional)"><input type="number" min="1" name="reference_monthly_rent_inr" value={form.reference_monthly_rent_inr} onChange={update} /></Field>
         <Field label="Investment cost in INR (optional)"><input type="number" min="1" name="investment_cost_inr" value={form.investment_cost_inr} onChange={update} /></Field>
@@ -372,7 +402,12 @@ export function ChatPanel({ history, setHistory }) {
     if (!text) return;
     const response = await request.send("/api/chat", { message: text, history });
     if (response) {
-      setHistory([...history, { role: "user", content: text }, { role: "assistant", content: response.reply }].slice(-12));
+      const caveats = response.caveats?.length
+        ? `\n\nCaveats: ${response.caveats.join(" ")}`
+        : "";
+      setHistory(
+        [...history, { role: "user", content: text }, { role: "assistant", content: `${response.reply}${caveats}` }].slice(-12)
+      );
       setMessage("");
     }
   }
@@ -387,14 +422,7 @@ export function ChatPanel({ history, setHistory }) {
         <WorkflowStatus busy={request.isLoading} error={request.error} />
         <button className="primary-button action-button" type="submit" disabled={request.isLoading || !message.trim()}>{request.isLoading ? "Thinking…" : "Send Question →"}</button>
       </form>
-      {request.result && (
-        <div className="workflow-result">
-          <h3>Assistant Response</h3>
-          <p>{request.result.reply}</p>
-          {request.result.caveats?.map((item, index) => <p className="form-note" key={index}>{item}</p>)}
-          <p className="decision-support-note">General AI guidance; verify high-impact decisions with a qualified professional.</p>
-        </div>
-      )}
+      {history.length > 0 && <p className="decision-support-note">General AI guidance; verify high-impact decisions with a qualified professional.</p>}
     </WorkflowPanel>
   );
 }

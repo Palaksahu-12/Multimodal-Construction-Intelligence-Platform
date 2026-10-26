@@ -24,11 +24,11 @@ def build_project_plan(request: ProjectPlanRequest) -> ProjectPlanResponse:
     total_cost = request.budget_inr or request.built_up_area_sqm * assumed_cost_per_sqm
     total_days = request.target_timeline_days or max(90, math.ceil(request.built_up_area_sqm * 0.8))
     phase_data = [
-        ("Design, approvals, and mobilization", 0.08, 0.15),
-        ("Site preparation and foundation", 0.18, 0.20),
-        ("Structural frame and masonry", 0.32, 0.25),
-        ("Electrical, plumbing, and services", 0.16, 0.15),
-        ("Finishes, testing, and handover", 0.26, 0.25),
+        ("Design, approvals, and mobilization", 0.08, 0.15, []),
+        ("Site preparation and foundation", 0.18, 0.20, ["Design, approvals, and mobilization"]),
+        ("Structural frame and masonry", 0.32, 0.25, ["Site preparation and foundation"]),
+        ("Electrical, plumbing, and services", 0.16, 0.15, ["Structural frame and masonry"]),
+        ("Finishes, testing, and handover", 0.26, 0.25, ["Electrical, plumbing, and services"]),
     ]
 
     costs = [
@@ -36,8 +36,9 @@ def build_project_plan(request: ProjectPlanRequest) -> ProjectPlanResponse:
             phase=phase,
             estimated_cost_inr=round(total_cost * cost_share, 2),
             duration_days=max(1, round(total_days * duration_share)),
+            depends_on=dependencies,
         )
-        for phase, cost_share, duration_share in phase_data
+        for phase, cost_share, duration_share, dependencies in phase_data
     ]
     costs[-1].estimated_cost_inr = round(total_cost - sum(item.estimated_cost_inr for item in costs[:-1]), 2)
     costs[-1].duration_days = max(1, total_days - sum(item.duration_days for item in costs[:-1]))
@@ -94,12 +95,19 @@ def build_project_plan(request: ProjectPlanRequest) -> ProjectPlanResponse:
         + (f" Location: {request.location}." if request.location else ""),
         "Material quantities are conceptual order-of-magnitude allowances, not construction drawings or a bill of quantities.",
     ]
+    risks = [
+        "Permitting, procurement lead times, weather, site access, and contractor availability may change the sequence or duration.",
+        "Unknown soil, utilities, existing-condition defects, and design changes can materially affect cost and schedule.",
+        "The indicative budget and material factors are not a quotation, engineered design, or verified local estimate.",
+    ]
     return ProjectPlanResponse(
         estimate_status="INDICATIVE",
         estimated_cost_inr=round(total_cost, 2),
+        estimated_duration_days=total_days,
         cost_breakdown=costs,
         materials=materials,
         assumptions=assumptions,
+        risks=risks,
         exclusions=[
             "Land, taxes, financing, design fees, permits, utility connections, escalation, and site-specific works unless included in the user's budget.",
             "No live material prices, supplier quotations, soil report, structural design, or local code review is integrated.",
@@ -110,7 +118,7 @@ def build_project_plan(request: ProjectPlanRequest) -> ProjectPlanResponse:
 def build_property_valuation(request: PropertyValuationRequest) -> PropertyValuationResponse:
     assumptions = [
         "This is an indicative arithmetic scenario, not a valuation or a market-data lookup.",
-        "The supplied reference price per m² is treated as the user's local comparable-rate input.",
+        "The supplied reference price per m² is treated as the user's local comparable-rate input for the stated property area.",
         "Illustrative age, condition, amenity, and uncertainty adjustments are not calibrated to local sales.",
     ]
     limitations = [
@@ -128,12 +136,14 @@ def build_property_valuation(request: PropertyValuationRequest) -> PropertyValua
             ],
         )
 
-    age_adjustment = min(request.building_age_years * 0.01, 0.30)
+    is_plot = request.property_type == "Plot"
+    age_adjustment = 0.0 if is_plot else min(request.building_age_years * 0.01, 0.30)
     condition_adjustments = {"Poor": -0.15, "Average": 0.0, "Good": 0.10}
-    amenity_adjustment = min(len(request.amenities) * 0.02, 0.10)
-    multiplier = max(0.5, 1 - age_adjustment + condition_adjustments[request.condition] + amenity_adjustment)
+    condition_adjustment = 0.0 if is_plot else condition_adjustments[request.condition]
+    amenity_adjustment = 0.0 if is_plot else min(len(request.amenities) * 0.02, 0.10)
+    multiplier = max(0.5, 1 - age_adjustment + condition_adjustment + amenity_adjustment)
 
-    area = request.built_up_area_sqm
+    area = request.area_sqm
     central_rate = request.reference_price_per_sqm_inr * multiplier
     central_value = central_rate * area
     price_low, price_high = central_rate * 0.9, central_rate * 1.1
@@ -165,7 +175,11 @@ def build_property_valuation(request: PropertyValuationRequest) -> PropertyValua
         adjustment_breakdown=[
             f"Location supplied: {place}, {request.city}; no independent locality data was retrieved.",
             f"Reference price: INR {request.reference_price_per_sqm_inr:,.0f}/m², supplied by the user.",
-            f"Age adjustment: -{age_adjustment:.0%}; condition adjustment: {condition_adjustments[request.condition]:+.0%}.",
+            (
+                "Building age, condition, and amenity adjustments are not applied to a plot."
+                if is_plot
+                else f"Age adjustment: -{age_adjustment:.0%}; condition adjustment: {condition_adjustment:+.0%}."
+            ),
             f"Amenity adjustment: +{amenity_adjustment:.0%} using a capped illustrative allowance.",
             f"Combined illustrative adjusted central value: INR {central_value:,.0f}.",
             "Displayed range is +/-10% around the adjusted estimate to reflect uncertainty, not a statistical confidence interval.",
